@@ -72,10 +72,10 @@ def get_data(train_df, test_df):
 
 ################ Tokenizer ####################
 ###############################################
-def tokenize(premise_data, hypothesis_data, tokenizer, MAX_LEN):
+def tokenize(model_name, premise_data, hypothesis_data, tokenizer, MAX_LEN):
 	print('Tokenizing')
 	# add special tokens for BERT to work properly
-	sentences = ["[CLS] " + premise_data[i] + " [SEP] " + hypothesis_data[i] + " [SEP]" for i in range(0,len(premise_data))]
+	sentences = ["[CLS] " + premise_data[i] + " [SEP]" + hypothesis_data[i] + "[SEP]" for i in range(0,len(premise_data))]
 	tokenized_texts = [tokenizer.tokenize(sent) for sent in sentences]
 	print ("Tokenize the first sentence:")
 	print (tokenized_texts[0])
@@ -92,15 +92,37 @@ def tokenize(premise_data, hypothesis_data, tokenizer, MAX_LEN):
 	  seq_mask = [float(i>0) for i in seq]
 	  attention_masks.append(seq_mask)
 
+	# Printing the input_ids
+	print('Input_ids[0]', input_ids[0])
+	print('Input_ids[0] elements')
+	for i in input_ids[0]:
+		print(i, type(i), end = " ")
+
+	token_type_ids = []
+	for seq in input_ids:
+		type_id = []
+		condition = 'sent1'
+		for i in seq:
+			if condition == 'sent1':
+				type_id.append(0)
+				if i == 102:
+					condition = 'sent2'
+			elif condition == 'sent2':
+				type_id.append(1)
+		token_type_ids.append(type_id)
+	print(token_type_ids[0])
+		
+
 	# Finally convert this into torch tensors
 	data_inputs = torch.tensor(input_ids, device =device)
 	data_masks = torch.tensor(attention_masks, device =device)
-	return data_inputs, data_masks
+	data_token_ids = torch.tensor(token_type_ids, device = device)
+	return data_inputs, data_masks, data_token_ids
 
 ################ Data Loader ####################
 ###############################################
-def get_data_loader(batch_size, inputs, masks, labels):
-	data = TensorDataset(inputs, masks, labels)
+def get_data_loader(batch_size, inputs, masks, token_ids, labels):
+	data = TensorDataset(inputs, masks, token_ids, labels)
 	sampler = RandomSampler(data)
 	dataloader = DataLoader(data, sampler=sampler, batch_size=batch_size)
 	return data, sampler, dataloader
@@ -117,7 +139,7 @@ def get_transformer_model(modelname):
 		# linear classification layer on top. 
 		model = BertForSequenceClassification.from_pretrained(
 		    "bert-base-uncased", # Use the 12-layer BERT model, with an uncased vocab.
-		    num_labels = 3, # The number of output labels--2 for binary classification.
+		    num_labels = 3, # The number of output labels--3 for covid-stance classification.
 		                    # You can increase this for multi-class tasks.   
 		    output_attentions = False, # Whether the model returns attentions weights.
 		    output_hidden_states = False, # Whether the model returns all hidden-states.
@@ -230,7 +252,8 @@ def train(epochs, model, train_dataloader, validation_dataloader, optimizer, sch
 	        #   [2]: labels 
 	        b_input_ids = batch[0].to(device)
 	        b_input_mask = batch[1].to(device)
-	        b_labels = batch[2].to(device)
+	        b_input_tokens = batch[2].to(device)
+	        b_labels = batch[3].to(device)
 
 	        # Always clear any previously calculated gradients before performing a
 	        # backward pass. PyTorch doesn't do this automatically because 
@@ -244,7 +267,7 @@ def train(epochs, model, train_dataloader, validation_dataloader, optimizer, sch
 	        # The documentation for this `model` function is here: 
 	        # https://huggingface.co/transformers/v2.2.0/model_doc/bert.html#transformers.BertForSequenceClassification
 	        outputs = model(b_input_ids, 
-	                    token_type_ids=None, 
+	                    token_type_ids=b_input_tokens, 
 	                    attention_mask=b_input_mask, 
 	                    labels=b_labels)
 	        
@@ -309,7 +332,7 @@ def train(epochs, model, train_dataloader, validation_dataloader, optimizer, sch
 	        batch = tuple(t.to(device) for t in batch)
 	        
 	        # Unpack the inputs from our dataloader
-	        b_input_ids, b_input_mask, b_labels = batch
+	        b_input_ids, b_input_mask, b_input_tokens, b_labels = batch
 	        
 	        # Telling the model not to compute or store gradients, saving memory and
 	        # speeding up validation
@@ -323,7 +346,7 @@ def train(epochs, model, train_dataloader, validation_dataloader, optimizer, sch
 	            # The documentation for this `model` function is here: 
 	            # https://huggingface.co/transformers/v2.2.0/model_doc/bert.html#transformers.BertForSequenceClassification
 	            outputs = model(b_input_ids, 
-	                            token_type_ids=None, 
+	                            token_type_ids=b_input_tokens, 
 	                            attention_mask=b_input_mask)
 	        
 	        # Get the "logits" output by the model. The "logits" are the output
@@ -372,13 +395,13 @@ def evaluate(prediction_dataloader, model):
 	  batch = tuple(t.to(device) for t in batch)
 	  
 	  # Unpack the inputs from our dataloader
-	  b_input_ids, b_input_mask, b_labels = batch
+	  b_input_ids, b_input_mask, b_input_tokens, b_labels = batch
 	  
 	  # Telling the model not to compute or store gradients, saving memory and 
 	  # speeding up prediction
 	  with torch.no_grad():
 	      # Forward pass, calculate logit predictions
-	      outputs = model(b_input_ids, token_type_ids=None, 
+	      outputs = model(b_input_ids, token_type_ids=b_input_tokens, 
 	                      attention_mask=b_input_mask)
 
 	  logits = outputs[0]
@@ -425,9 +448,9 @@ def main():
 	epochs = 4
 	tokenizer, model = get_transformer_model(model_name)
 	print("Successfully retrived tokenizer and the model!")
-	train_inputs, train_masks = tokenize(x1_train, x2_train, tokenizer, MAX_LEN)
-	val_inputs, val_masks = tokenize(x1_val, x2_val, tokenizer, MAX_LEN)
-	test_inputs, test_masks = tokenize(x1_test, x2_test, tokenizer, MAX_LEN)
+	train_inputs, train_masks, train_token_ids = tokenize(model_name, x1_train, x2_train, tokenizer, MAX_LEN)
+	val_inputs, val_masks, val_token_ids = tokenize(model_name, x1_val, x2_val, tokenizer, MAX_LEN)
+	test_inputs, test_masks, test_token_ids = tokenize(model_name, x1_test, x2_test, tokenizer, MAX_LEN)
 
 	# Converting the labels into torch tensors
 	train_labels = torch.tensor(y_train, dtype=torch.long, device =device)
@@ -440,9 +463,9 @@ def main():
 	print('Val input', val_inputs.shape, 'Val Masks', val_inputs.shape, 'Val Labels', val_inputs.shape)
 	print('Test input', test_inputs.shape, 'Test Masks', test_inputs.shape, 'Test Labels', test_inputs.shape)
 	# Getting the dataloaders
-	train_data, train_sampler, train_dataloader = get_data_loader(batch_size, train_inputs, train_masks, train_labels)
-	val_data, val_sampler, val_dataloader = get_data_loader(batch_size, val_inputs, val_masks, val_labels)
-	test_data, test_sampler, test_dataloader = get_data_loader(batch_size, test_inputs, test_masks, test_labels)
+	train_data, train_sampler, train_dataloader = get_data_loader(batch_size, train_inputs, train_masks, train_token_ids, train_labels)
+	val_data, val_sampler, val_dataloader = get_data_loader(batch_size, val_inputs, val_masks, val_token_ids, val_labels)
+	test_data, test_sampler, test_dataloader = get_data_loader(batch_size, test_inputs, test_masks, test_token_ids, test_labels)
 	print("Successfull in data prepration!")
 
 	# Getting optimzer and scheduler
