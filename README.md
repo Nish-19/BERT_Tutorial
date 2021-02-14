@@ -1,6 +1,6 @@
 # BERT_Tutorial
 
-Code for using BERT embeddings and fine-tuning for classification tasks.
+This code is written as a supplement to the blog [BERTology Transfer Learning in Natural Language Processing](https://nish-19.github.io/BERTology-Transfer-Learning-in-Natural-Language-Processing/)
 
 Here, BERT is used on a sentence pair for stance detection on Covid-Stance dataset. The dataset is taken from twitter and the code to rehydrate the tweets is given in the dataset folder.
 
