@@ -6,3 +6,8 @@ Here, BERT is used on a sentence pair for stance detection on Covid-Stance datas
 
 bert_embeddings.py - uses BERT based embeddings for the stance detection task.
 bert_fine_tune.py - Performs Fine-Tuning using the BertForSequenceClassification module of HuggingFace Transformers.
+
+Before running the above codes, rehydrate the covid-stance dataset using
+cd datasets
+python info_extractor.py
+python split_traindata.py
